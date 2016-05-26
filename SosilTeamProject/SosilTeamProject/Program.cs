@@ -22,7 +22,9 @@ namespace SosilTeamProject
         public static List<string> InLobbyUserName = new List<string>(); //대기방에 접속중인 유저 이름
         public static List<string> InLobbyUserNickName = new List<string>(); //대기방에 접속중인 유저 닉네임
         public static List<NetworkStream> InLobbyStream = new List<NetworkStream>();
-        public static List<AvailableGameInfo> AvailableGames = new List<AvailableGameInfo>();
+        public static List<AvailableGameInfo> AvailableGames = new List<AvailableGameInfo>(); //대기방목록
+        public static List<Gamez> gHandle = new List<Gamez>(); //실제 게임
+        public static int gamenumber = 1;
 
 
         static void Main(string[] args)
@@ -39,6 +41,7 @@ namespace SosilTeamProject
                 try
                 {
                     Socket clntSock = listener.AcceptSocket(); //연결요청대기 블록
+                    Console.WriteLine("연결요청을 처리합니다");
                     Protocol protocol = new Protocol(clntSock,myDB);
                     
                     Thread thread = new Thread(new ThreadStart(protocol.handleclient));
@@ -173,6 +176,33 @@ namespace SosilTeamProject
 
         }
 
+        public class Gamez
+        {
+            public List<NetworkStream> InGameUserStream = new List<NetworkStream>(); //같은 게임에 있는 유저 스트림
+            public List<string> InGameUserName = new List<string>(); //같은 게임에 있는 유저 이름
+            public int Gnumber; //게임 번호;
+            public byte[] sendBuffer = new byte[1024 * 4];
+
+            public Gamez(int Gnum)
+            {
+                this.Gnumber = Gnum;
+            }
+
+            public void Gallsend()
+            {
+                foreach (NetworkStream nws in InGameUserStream)
+                {
+                    nws.Write(this.sendBuffer, 0, sendBuffer.Length);
+                    nws.Flush();
+                }
+                for (int i = 0; i < 1024 * 4; i++)
+                {
+                    this.sendBuffer[i] = 0;
+                }
+            }
+        }
+        
+
 
         class Protocol
         {
@@ -181,10 +211,12 @@ namespace SosilTeamProject
             {
                 inLobby = 0,
                 inGame = 1
-            }
+            } //유저상태 나타내는 
             private clientState cState; //현재 클라이언트의 상태를 나타냄
             private gameInfo cGame; //현재 클라이언트가 진행중인 게임의 정보
             private NetworkStream S_NetStream; //네트워크 스트림;
+            //private List<NetworkStream> InGameUserStarem = new List<NetworkStream>(); //같은 게임에 있는 유저 스트림
+            //public List<Socket> clntList = new List<Socket>(); //같은 게임을 진행중인 client의 리스트
             byte[] readBuffer = new byte[1024 * 4];
             byte[] sendBuffer = new byte[1024 * 4];
             bool clientOn = false;
@@ -253,6 +285,35 @@ namespace SosilTeamProject
                 return;
             }
 
+            //로비정보 전송
+            public void LobbyInfoSend(Packet packet)
+            {
+                Console.WriteLine("대기실 정보를 전송합니다.");
+                LobbyInfo recv = (LobbyInfo)packet;
+                LobbyInfo lobby;
+                if (recv.InOrOut == LobbyInAndOut.입장)
+                {
+                    InLobbyUserName.Add(myInfo.Id);
+                    InLobbyStream.Add(S_NetStream);
+                    InLobby.Add(clntSock);
+                    InLobbyUserNickName.Add(myInfo.NickName);
+                    cState = clientState.inLobby;
+                    lobby = new LobbyInfo(AvailableGames, InLobbyUserNickName);
+                }
+                else
+                {
+                    InLobby.Remove(clntSock);
+                    InLobbyStream.Remove(S_NetStream);
+                    InLobbyUserName.Remove(myInfo.Id);
+                    InLobbyUserNickName.Remove(myInfo.NickName);
+                    cState = clientState.inGame;
+                    lobby = new LobbyInfo(AvailableGames, InLobbyUserNickName);
+                }
+                Packet.Serialize(lobby).CopyTo(sendBuffer, 0);
+                SendLobby();
+
+            }
+
             //회원가입을 처리하는 메소드
             public void Sign(SignIn signin)
             {
@@ -301,6 +362,25 @@ namespace SosilTeamProject
                     Send();
                 }
             }
+
+            //로비에서 나갈때 이걸 호출하자 로비정보전송은 따로해줘야함
+            public void LobbyOut()
+            {
+                InLobby.Remove(clntSock);
+                InLobbyStream.Remove(S_NetStream);
+                InLobbyUserName.Remove(myInfo.Id);
+                InLobbyUserNickName.Remove(myInfo.NickName);
+            }
+
+            //로비로 들어올 때 이거 호출
+            public void LobbyIn()
+            {
+                InLobby.Add(clntSock);
+                InLobbyStream.Add(S_NetStream);
+                InLobbyUserName.Add(myInfo.Id);
+                InLobbyUserNickName.Add(myInfo.NickName);
+            }
+
 
             //클라이언트 요청을 처리하는 메소드
             //스레드로 동작하고 각 클라이언트마다 하나씩 존재
@@ -353,51 +433,221 @@ namespace SosilTeamProject
                             //모든 로비유저에게 뿌려줌
                         case (int)PacketType.대기실정보:
                             {
-                                Console.WriteLine("대기실 정보를 전송합니다.");
-                                LobbyInfo recv = (LobbyInfo)packet;
-                                LobbyInfo lobby;
-                                if (recv.InOrOut == LobbyInAndOut.입장)
-                                {
-                                    InLobbyUserName.Add(myInfo.Id);
-                                    InLobbyStream.Add(S_NetStream);
-                                    InLobby.Add(clntSock);
-                                    InLobbyUserNickName.Add(myInfo.NickName);
-                                    cState = clientState.inLobby;
-                                    lobby = new LobbyInfo(AvailableGames, InLobbyUserNickName);
-                                }
-                                else
-                                {
-                                    InLobby.Remove(clntSock);
-                                    InLobbyStream.Remove(S_NetStream);
-                                    InLobbyUserName.Remove(myInfo.Id);
-                                    InLobbyUserNickName.Remove(myInfo.NickName);
-                                    cState = clientState.inGame;
-                                    lobby = new LobbyInfo(AvailableGames, InLobbyUserNickName);
-                                }
-                                Packet.Serialize(lobby).CopyTo(sendBuffer, 0);
-                                SendLobby();
-
+                                LobbyInfoSend(packet);
                                 break;
                             }
                         case (int)PacketType.게임방입장:
                             {
+                                Join joinRequest = (Join)packet;
+                                Console.WriteLine("입장요청을 받았습니다");
+                                //방번호를 받아서 검색을 합니다.
+                                
+                                //입장가능한지 체크하고 가능하면 인원수 +1
+                                foreach(AvailableGameInfo temp in AvailableGames)
+                                {
+                                    if(temp.GameNumber == joinRequest.Rnumber)
+                                    {
+                                        if(temp.NumOfPlayer == 4)
+                                        {
+                                            Console.WriteLine("입장 불가능");
+                                            //불가능하다고 전송하고 Out
+                                            Join response = new Join(0, null,0);
+                                            Packet.Serialize(response).CopyTo(sendBuffer, 0);
+                                            Send();
+                                            break;
+                                        }
+                                        temp.NumOfPlayer++;
+                                    }
+                                }
+
+                                //방번호가 같으면 내가 입장한 게임과 매칭시킵니다.
+                                Console.WriteLine("게임 매칭중");
+                                foreach (Gamez tempz in gHandle)
+                                {
+                                    if(tempz.Gnumber == joinRequest.Rnumber)
+                                    {
+                                        cGame = new gameInfo();
+                                        cGame.gameNumber = tempz.Gnumber;
+                                        tempz.InGameUserName.Add(myInfo.NickName);
+                                        cGame.clntName = tempz.InGameUserName;
+                                        Console.WriteLine("게임정보 재전송");
+                                        InGamePlayerInfo responsez = new InGamePlayerInfo(tempz.InGameUserName);
+                                        Packet.Serialize(responsez).CopyTo(tempz.sendBuffer, 0);
+                                        tempz.Gallsend();
+                                        tempz.InGameUserStream.Add(S_NetStream);
+                                        cState = clientState.inGame;
+                                        //게임정보를 재전송합니다. 같은방에 있는 모든 유저에게 재전송
+                                        Console.WriteLine("방입장 응답");
+                                        Join response = new Join(1, tempz.InGameUserName,joinRequest.Rnumber);
+                                        Packet.Serialize(response).CopyTo(sendBuffer,0);
+                                        Send();
+                                        Console.WriteLine("로비이탈중");
+                                        //로비이탈처리를 합니다
+                                        LobbyOut();
+
+                                        Console.WriteLine("로비정보 재전송");
+                                        //로비정보 재전송합니다.
+                                        LobbyInfo lobbyinfoz = new LobbyInfo(AvailableGames, InLobbyUserNickName);
+                                        Packet.Serialize(lobbyinfoz).CopyTo(sendBuffer, 0);
+                                        SendLobby();
+                                        break;
+                                    }
+
+                                }
+
+                                //입장불가능시
+                                Join response2 = new Join(0, null,0);
+                                Packet.Serialize(response2).CopyTo(sendBuffer, 0);
+                                Send();
+
+
+
                                 break;
                             }
                         case (int)PacketType.메시지:
                             {
-                                Console.WriteLine("로비 이용자들에게 메시지를 전송합니다.");
+                                
                                 userMessage recvMsg = (userMessage)packet;
                                 //2가지... 로비에서 전달, 방안에서전달
                                 if (cState == clientState.inLobby)
                                 {
+                                    Console.WriteLine("로비 이용자들에게 메시지를 전송합니다.");
                                     userMessage SendMsg = new userMessage(recvMsg.message, recvMsg.userNickname);
+                                    SendMsg.isLobby = true;
                                     Packet.Serialize(SendMsg).CopyTo(sendBuffer, 0);
                                     SendLobby();
                                 }
                                 else if (cState == clientState.inGame)
                                 {
+                                    foreach (Gamez temp in gHandle)
+                                    {
+                                        if(temp.Gnumber == recvMsg.Gnumber)
+                                        {
+                                            Console.WriteLine("게임 이용자들에게 메시지를 전송합니다.");
+                                            userMessage SendMsg = new userMessage(recvMsg.message, recvMsg.userNickname);
+                                            SendMsg.isLobby = false;
+                                            Packet.Serialize(SendMsg).CopyTo(temp.sendBuffer, 0);
+                                            temp.Gallsend();
+                                        }
+                                    }
+                                    //요고요고 수정하도록!
+                                }
+
+                                break;
+                            }
+                        case (int)PacketType.방생성:
+                            {
+                                Console.WriteLine("대기 방 생성 요청을 받았습니다.");
+                                RoomCreate R_C = (RoomCreate)packet;
+                                AvailableGameInfo newRoom = new AvailableGameInfo();
+                                newRoom.GameName = R_C.RName;
+                                newRoom.GameNumber = gamenumber;
+                                gamenumber++;
+                                newRoom.NumOfPlayer = 1;
+                                newRoom.GState = GameInfo.입장가능;
+                                AvailableGames.Add(newRoom);
+                                Console.WriteLine("방 생성 요청에 응답했습니다. 로비 이탈 처리를 합니다.");
+                                LobbyOut();
+                                Console.WriteLine("로비이탈처리를했습니다. 방 생성 입장 처리를 합니다");
+                                cGame = new gameInfo();
+                                //clntList.Add(clntSock);
+                                cGame.clntName.Add(myInfo.NickName);
+                                cGame.gameNumber = newRoom.GameNumber;
+                                cState = clientState.inGame;
+                                //InGameUserStarem.Add(S_NetStream);
+                                Console.Write("새 게임을 만듭니다.");
+                                Gamez newGame = new Gamez(newRoom.GameNumber);
+                                newGame.InGameUserStream.Add(S_NetStream);
+                                newGame.InGameUserName.Add(myInfo.NickName);
+                                gHandle.Add(newGame);
+                                Console.WriteLine("방 생성 요청에 응답합니다");
+                                RoomCreate responseR_C = new RoomCreate(R_C.RName, newRoom.GameNumber);
+                                responseR_C.gameinfo = cGame;
+
+                                Packet.Serialize(responseR_C).CopyTo(sendBuffer, 0);
+                                Send();
+                                Console.WriteLine("로비이탈처리를 했습니다. 로비정보를 재전송합니다");
+                                LobbyInfo lobbyinfoz = new LobbyInfo(AvailableGames, InLobbyUserNickName);
+                                Packet.Serialize(lobbyinfoz).CopyTo(sendBuffer, 0);
+                                SendLobby();
+                                break;
+                            }
+                        case (int)PacketType.방퇴장:
+                            {
+                                bool Boom = false; //방 폭파를 위한 bool
+                                Console.WriteLine("방 퇴장 요청을 받았습니다.");
+                                RoomOut R_O = (RoomOut)packet;
+
+                                AvailableGameInfo thisGameInfo = new AvailableGameInfo();
+                                Gamez thisGamez = new Gamez(-1);
+                                //방 인원수 체크
+                                foreach (AvailableGameInfo temp in AvailableGames)
+                                {
+                                    if (temp.GameNumber == R_O.Rnumber)
+                                    {
+                                        thisGameInfo = temp;
+                                        if (temp.NumOfPlayer == 1)
+                                        {
+                                            //방을 폭파시키기위한 준비.
+                                            Boom = true;
+                                        }
+                                        else
+                                        {
+                                            //아닐시 사람수 하나 줄여줌
+                                            thisGameInfo.NumOfPlayer--;
+                                        }
+                                    }
+                                        
+                                }
+
+                                foreach (Gamez tempz in gHandle)
+                                {
+                                    if (tempz.Gnumber == R_O.Rnumber)
+                                    {
+                                        thisGamez = tempz;
+                                        //방이 폭파되지 않을경우
+                                        if (Boom == false)
+                                        {
+                                            Console.WriteLine("현재 유저만 방에서 이탈");
+                                            tempz.InGameUserName.Remove(myInfo.NickName);
+                                            tempz.InGameUserStream.Remove(S_NetStream);
+                                            Console.WriteLine(tempz.InGameUserStream.Count);
+                                            cState = clientState.inLobby;
+                                            //게임정보를 재전송합니다. 같은방에 있는 모든 유저에게 재전송
+                                            //이부분 수정필요 JOIN말고 다른걸 써야함
+                                            Console.WriteLine("게임정보 재전송");
+                                            InGamePlayerInfo response = new InGamePlayerInfo(tempz.InGameUserName);
+                                            Packet.Serialize(response).CopyTo(tempz.sendBuffer, 0);
+                                            tempz.Gallsend();
+                                            Console.WriteLine("로비진입중");
+
+                                        }
+                                    }
 
                                 }
+
+                                //방이 폭파되지 않더라도 cGame초기화
+                                cGame = new gameInfo();
+
+                                //방폭파처리
+                                if (Boom == true)
+                                {
+                                    AvailableGames.Remove(thisGameInfo);
+                                    gHandle.Remove(thisGamez);
+                                }
+                                //로비진입처리
+                                LobbyIn(); //이거 바꿔준다
+                                cState = clientState.inLobby;
+                                Console.WriteLine("로비정보 재전송");
+                                //로비정보 재전송합니다.
+                                LobbyInfo lobbyinfoz = new LobbyInfo(AvailableGames, InLobbyUserNickName);
+                                Packet.Serialize(lobbyinfoz).CopyTo(sendBuffer, 0);
+                                SendLobby();
+
+                                lobbyinfoz = new LobbyInfo(AvailableGames, InLobbyUserNickName);
+                                Packet.Serialize(lobbyinfoz).CopyTo(sendBuffer, 0);
+                                SendLobby();
+
 
                                 break;
                             }
@@ -415,13 +665,7 @@ namespace SosilTeamProject
     }
 
 
-
-    class gameInfo
-    {
-        public List<Socket> clntList; //같은 게임을 진행중인 client의 리스트
-        public List<string> clntName; //같은 게임을 진행하는 client들의 이름 
-        int gameNumber; //방 번호
-    }
+    
 
 
 }

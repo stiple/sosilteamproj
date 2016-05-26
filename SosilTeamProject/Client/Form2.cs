@@ -33,7 +33,7 @@ namespace Client
             try
             {
                 refForm.client = new TcpClient();
-                refForm.client.Connect("127.0.0.1", 5000);
+                refForm.client.Connect("1.228.8.99", 5000);
             }
             catch
             {

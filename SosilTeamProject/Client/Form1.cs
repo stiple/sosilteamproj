@@ -22,11 +22,20 @@ namespace Client
         public byte[] readBuffer = new byte[1024 * 4];
         bool connection = false;
         Thread recvThread;
-        userInfo myInfo;
+        public userInfo myInfo;
+        Form3 form3;
+        
 
         public Form1()
         {
             InitializeComponent();
+
+            RoomList.View = View.Details;
+            RoomList.BeginUpdate();
+            RoomList.Columns.Add("번호");
+            RoomList.Columns.Add("이름");
+            RoomList.Columns.Add("인원");
+            RoomList.EndUpdate();
         }
 
         private void LoginButton_Click(object sender, EventArgs e)
@@ -36,7 +45,7 @@ namespace Client
             try
             {
                 client = new TcpClient();
-                client.Connect("1.229.76.9", 5000);
+                client.Connect("1.228.8.99", 5000);
             }
             catch
             {
@@ -98,12 +107,25 @@ namespace Client
             }
 
             myInfo = upacket.userinfo;
-            UserNicknameText.Text = myInfo.NickName;
-            UserNumof1stText.Text = "우승횟수: " + myInfo.numof1st.ToString();
-            UserNumofGameText.Text = "총 게임수: " + myInfo.numofgame.ToString();
+            UserNicknameText.Invoke((MethodInvoker)(() =>
+                UserNicknameText.Text = myInfo.NickName
+            ));
+            UserNumof1stText.Invoke((MethodInvoker)(() =>
+                UserNumof1stText.Text = "우승횟수: " + myInfo.numof1st.ToString()
+            ));
+            UserNumofGameText.Invoke((MethodInvoker)(() =>
+                UserNumofGameText.Text = "총 게임수: " + myInfo.numofgame.ToString()
+            ));
 
-            LoginButton.Enabled = false;
-            SignInButton.Enabled = false;
+            LoginButton.Invoke((MethodInvoker)(() =>
+                LoginButton.Enabled = false
+            ));
+
+            SignInButton.Invoke((MethodInvoker)(() =>
+
+                SignInButton.Enabled = false
+            ));
+            
 
             connection = true;
 
@@ -126,29 +148,83 @@ namespace Client
                         case (int)PacketType.메시지:
                             {
                                 userMessage recvMsg = (userMessage)packet;
-                                ChatTextBox.Invoke((MethodInvoker)(() => ChatTextBox.AppendText(recvMsg.userNickname +": " + recvMsg.message + "\n")));
+
+                                ChatTextBox.Invoke((MethodInvoker)(() => ChatTextBox.AppendText(recvMsg.userNickname + ": " + recvMsg.message + "\n")));
 
                                 break;
                             }
                         case (int)PacketType.대기실정보:
                             {
+                                //MessageBox.Show("대기실 정보를 받아옵니다.");
                                 LobbyInfo lobby = (LobbyInfo)packet;
                                 UserList.Invoke((MethodInvoker)(() =>
                                     UserList.Items.Clear()
                                 ));
+                                RoomList.Invoke((MethodInvoker)(() =>
+                                    RoomList.Items.Clear()                               
+                                ));
+                                
                                 foreach (string nickname in lobby.InLobbyUserName)
                                 {
                                     UserList.Invoke((MethodInvoker)(() =>
                                         UserList.Items.Add(nickname)
                                     ));
                                 }
-                                //방 정보 추가하는 메서드 추가 필요함!
+                                foreach(AvailableGameInfo thisGame in lobby.GameList)
+                                {
+                                    string[] arr = new string[] { thisGame.GameNumber.ToString(), thisGame.GameName, thisGame.NumOfPlayer + "/4" };
+                                    RoomList.Invoke((MethodInvoker)(() =>
+
+                                        RoomList.Items.Add(new ListViewItem(arr))
+                                    ));
+                                }
+                                //방 정보 추가하는 메서드 추가 필요함! 추가
+                                break;
+                            }
+                            //방생성 응답받았을 시
+                        case (int)PacketType.방생성:
+                            {
+                                //MessageBox.Show("게임방을 생성합니다.");
+                                RoomCreate R_C = (RoomCreate)packet;
+                                InGame InGameForm = new InGame(this);
+                                InGameForm.isSuperUser = true;
+                                InGameForm.myInGameUserName = R_C.gameinfo.clntName;
+                                //InGameForm.igNetStream = c_NetStream;
+                                InGameForm.isSuperUser = true;
+                                InGameForm.Rnumber = R_C.Rnumber;
+                                InGameForm.myname = myInfo.NickName;
+                                InGameForm.createRoom();
+                                InGameForm.ShowDialog();
+
+                                break;
+                            }
+                        //방 입장 응답받았을 시
+                        case (int)PacketType.게임방입장:
+                            {
+                                //MessageBox.Show("게임방에 입장합니다!");
+                                Join join = (Join)packet;
+                                InGame InGameForm = new InGame(this);
+                                InGameForm.isSuperUser = false;
+                                InGameForm.myInGameUserName = join.userName;
+                                //InGameForm.igNetStream = c_NetStream;
+                                InGameForm.Rnumber = join.Rnumber;
+                                InGameForm.myname = myInfo.NickName;
+                                InGameForm.createRoom();
+                                InGameForm.ShowDialog();
+                                break;
+                            }
+                        default:
+                            {
                                 break;
                             }
                     }
                 }
                 catch(Exception e)
                 {
+                    Console.WriteLine(e.StackTrace+"\n");
+                    Console.WriteLine(e.ToString());
+                    MessageBox.Show(e.StackTrace + "\n" + e.ToString());
+                    
                     return;
                 }
             }
@@ -166,6 +242,7 @@ namespace Client
         {
             if (connection == true)
             {
+                //MessageBox.Show("보낸다!");
                 userMessage SendMsg = new userMessage(WriteChatBox.Text, myInfo.NickName);
                 WriteChatBox.Clear();
                 Packet.Serialize(SendMsg).CopyTo(sendBuffer, 0);
@@ -210,6 +287,38 @@ namespace Client
                     Packet.Serialize(SendMsg).CopyTo(sendBuffer, 0);
                     Send();
                 }
+            }
+        }
+
+        private void CreateRoomButton_Click(object sender, EventArgs e)
+        {
+            if (connection == true)
+            {
+                form3 = new Form3(this);
+                form3.ShowDialog();
+            }
+        }
+
+        private void RoomList_MouseDoubleClick(object sender, MouseEventArgs e)
+        {
+            if (connection == true)
+            {
+                if(RoomList.SelectedItems.Count == 1)
+                {
+                    ListView.SelectedListViewItemCollection items = RoomList.SelectedItems;
+                    ListViewItem lvItem = items[0];
+                    if(lvItem.SubItems[2].Text == "4/4")
+                    {
+                        MessageBox.Show("방이 가득 찼습니다.");
+                        return;
+                    }
+                    string Rnumber = lvItem.SubItems[0].Text;
+                    string Rname = lvItem.SubItems[1].Text;
+                    Join joinRequest = new Join(int.Parse(Rnumber));
+                    Packet.Serialize(joinRequest).CopyTo(sendBuffer, 0);
+                    Send();
+                }
+                
             }
         }
     }

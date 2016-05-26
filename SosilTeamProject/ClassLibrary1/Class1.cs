@@ -5,6 +5,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.IO;
 using System.Runtime.Serialization.Formatters.Binary;
+using System.Net.Sockets;
 
 namespace userLibrary
 {
@@ -16,6 +17,9 @@ namespace userLibrary
         게임방입장,
         회원가입,
         메시지,
+        방생성,
+        방퇴장,
+        게임유저,
         무의미
     }
 
@@ -32,19 +36,33 @@ namespace userLibrary
         에러
     }
 
-    public enum GameStatement
+    public enum GameInfo
     {
-        자리있음 =0,
-        가득참
+        입장가능=0,
+        입장불가능
     }
 
-    //로비에서 입장요청을 했을때 입장요청을 한 방의 정보를 담는 클래스
+    [Serializable]
+    public class gameInfo
+    {
+        //public List<Socket> clntList; //같은 게임을 진행중인 client의 리스트
+        public List<string> clntName; //같은 게임을 진행하는 client들의 이름 
+        public int gameNumber; //방 번호
+        public gameInfo()
+        {
+            //clntList = new List<Socket>();
+            clntName = new List<string>();
+        }
+    }
+
+    //로비에 입장했을 때 게임의 정보를 담는 클래스
     [Serializable]
     public class AvailableGameInfo
     {
         public int GameNumber;
         public string GameName;
-        public GameStatement GameState;
+        public int NumOfPlayer;
+        public GameInfo GState;
     }
 
     //유저 정보를 담는 클래스
@@ -165,34 +183,31 @@ namespace userLibrary
     [Serializable]
     public class Join : Packet
     {
-        //클라이언트에서 서버에게 방 입장 요청을 보냈으면 0
-        //서버에서 클라이언트에게 방 입장 요청을 응답할경우 1
-        public int whoSend;
-        public AvailableGameInfo SelectedGame;
-        public List<PlayerInfo> OtherPlayerInfo;
+        //방번호
+        public int Rnumber;
 
         //입장이 가능하면 1
         //입장이 불가능하면 0
         public int Available;
 
-        public Join(AvailableGameInfo SelectedGame)
+        public List<string> userName;
+
+        public Join(int Rnumber)
         {
-            whoSend = 0;
-            this.SelectedGame = SelectedGame;
-            OtherPlayerInfo = null;
+            this.Rnumber = Rnumber;
             Available = -1;
             Type = (int)PacketType.게임방입장;
         }
 
-        public Join(AvailableGameInfo SelectedGame, List<PlayerInfo> OtherPlayerInfo, int Available)
+        public Join (int Available, List<string>UserName, int Rnumber)
         {
-            whoSend = 1;
-            this.SelectedGame = SelectedGame;
-            this.OtherPlayerInfo = OtherPlayerInfo;
             this.Available = Available;
+            this.userName = UserName;
+            this.Rnumber = Rnumber;
             Type = (int)PacketType.게임방입장;
         }
     }
+
 
     //회원가입 요청을 하고 응답할때 쓰이는 클래스
     //클라이언트는 ID password 닉네임을 
@@ -229,13 +244,75 @@ namespace userLibrary
     {
         public string message;
         public string userNickname;
+        public bool isLobby; //로비에있으면 true, 방안에있으면 false
+        public int Gnumber;
 
         public userMessage(string message, string userNickname)
         {
+            isLobby = false;
             this.message = message;
             this.userNickname = userNickname;
+            this.Gnumber = -1;
             Type = (int)PacketType.메시지;
         }
+        public userMessage(string message, string userNickname, int Gnumber)
+        {
+            isLobby = false;
+            this.message = message;
+            this.userNickname = userNickname;
+            this.Gnumber = Gnumber;
+            Type = (int)PacketType.메시지;
+        }
+
+    }
+
+    //방 생성 요청, 응답
+    [Serializable]
+    public class RoomCreate : Packet
+    {
+        public RoomCreate(string Rname)
+        {
+            this.RName = Rname;
+            Type = (int)PacketType.방생성;
+        }
+        public RoomCreate(string Rname, int Rnumber)
+        {
+            this.RName = Rname;
+            this.Rnumber = Rnumber;
+            Type = (int)PacketType.방생성;
+        }
+        public string RName; //방 이름- client에서 전달
+        public int Rnumber; // 방 번호 - server에서 전달, 생성 실패시 -1 return;
+        public gameInfo gameinfo; //게임정보를 담고있는 클래스 서버 -> 클라이언트시
+    }
+
+
+    //방 퇴장시
+    [Serializable]
+    public class RoomOut : Packet
+    {
+        public int Rnumber; //방번호
+        public bool isSuperUser; //방장이었는지
+
+        public RoomOut(int Rnumber,bool isSuperUser )
+        {
+            this.Rnumber = Rnumber;
+            this.isSuperUser = isSuperUser;
+            Type = (int)PacketType.방퇴장;
+        }
+    }
+
+    [Serializable]
+    public class InGamePlayerInfo : Packet
+    {
+        public List<string> userList;
+        public InGamePlayerInfo(List<string> userList)
+        {
+            this.userList = userList;
+            Type = (int)PacketType.게임유저;
+        }
+              
+
 
     }
 }
